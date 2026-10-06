@@ -12,23 +12,10 @@ the package manager.
 
 Bug reports live in **[smechos-issues](https://github.com/Smech-Labs/smechos-issues)**.
 
-### Release status
-
-**[RC3](RC3.md)** is the current shipped release (stable reference doc —
-architecture, the real boot-chain bug chain that RC3 fixed, download
-links). The **Founder Anniversary Edition**, a cosmetic patch on top of RC3
-(new wallpaper, branding, no code changes), shipped the same day this
-README was last updated.
-
-**[RC4](RC4.md)** ("Founder Name Day Edition") is in active development —
-a living doc, unlike RC3's, since it's a moving target: real
-cross-compilation via a dedicated toolchain (`x86_64-smechos-linux-gnu`,
-built with crosstool-ng) instead of relying on the build container's own
-glibc matching the target's — see the cross-toolchain note below. Some
-phases (`cross-deps`, parts of `mesa`/`qt-deps`/`kernel`) already build this
-way; most of the rest of the pipeline still uses the container-glibc-match
-approach described next. If you're picking up an issue, check which phase
-you're touching — the two approaches have different debugging patterns.
+This README is split into two halves: **[RC3](#rc3--architecture-reference-stable)**,
+the current shipped release (stable — won't drift), and **[RC4](#rc4--founder-name-day-edition-living-document)**,
+the in-progress next release (a living section, updated as the work
+changes). General build-system usage (below) applies to both.
 
 ---
 
@@ -343,6 +330,175 @@ docker run --rm --privileged --cgroupns=host \
     ghcr.io/smech-labs/smechos-build:latest smechos-plasma-live --phase kde
 ```
 
+---
+---
+
+# RC3 — architecture reference (stable)
+
+**This half of the README is stable, shipped, and won't drift** — unlike
+the RC4 half below. If something here looks wrong, it's a documentation
+bug, not normal staleness.
+
+## What shipped
+
+- **Desktop**: KDE Plasma 6.6.6 LTS, KDE Frameworks 6.24.0 (the
+  Bullet-Proof KDE Initiative LTS line — the only Plasma 6.x release with
+  real, whole-stack long-term support, not just a shell-only backport).
+- **Kernel**: Linux 6.12.16.
+- **Package manager**: `spk` 2.1.0, with [pkg.smech.xyz](https://pkg.smech.xyz)
+  support.
+- **Released**: 2026-09-30. A cosmetic-only patch, the **Founder
+  Anniversary Edition** (new wallpaper, GRUB theme, a couple of hidden
+  easter eggs — zero code changes, same binaries as RC3), shipped
+  2026-10-06.
+
+## RC3 build architecture
+
+RC3's entire pipeline runs via plain `subprocess.run` calls against the
+**build container's own toolchain** — there is no chroot, no `--sysroot`,
+no cross-compiler. The container's glibc (Ubuntu 24.04, glibc 2.39) is
+deliberately matched to the target rootfs's own glibc version, so the
+container's native `gcc`/`cmake`/`moc`/etc. can be pointed at the target
+tree via `-I`/`-L`/`LD_LIBRARY_PATH` and just work — see "Why builds happen
+in a container" above for the full reasoning and the exact failure mode
+(`GLIBC_PRIVATE` symbol versioning) that this works around.
+
+This was a real, deliberate architectural choice, not a shortcut — see the
+RC4 half below for why it's now being replaced for parts of the pipeline.
+
+## The RC3 boot-chain bug chain (why RC3 took as long as it did)
+
+RC2's ISO built successfully but never reached a working desktop. RC3's
+entire scope was root-causing and fixing every layer of that, confirmed via
+a real, visually-verified boot each time — not guessed at:
+
+1. **Mesa/GBM was silently broken system-wide** — missing the actual
+   `libLLVM.so.1` payload behind a symlink Mesa's DRI loader depends on.
+   `kwin_wayland` failed to create a GBM device and exited clean every
+   boot, with no crash, no journal entry, no core dump.
+2. **The dynamic linker cache was never regenerated** against the built
+   rootfs — the same class of dlopen-by-soname failure, independently.
+3. **The graphical session was invisible to systemd** —
+   `/usr/lib/systemd/user/dbus.{service,socket}` didn't exist in the
+   image, so `plasma-workspace-wayland.target` sat permanently inactive
+   even though `kwin_wayland` itself ran fine.
+4. **Independently-started session components crashed on launch**
+   (`kactivitymanagerd`, the PolicyKit agent, Powerdevil, the first-boot
+   wizard) with `Could not find the Qt platform plugin "wayland"` —
+   `QT_PLUGIN_PATH`/`QML2_IMPORT_PATH` were never propagated into the
+   systemd `--user` environment.
+5. **`xrdb` was missing entirely**, breaking `kcminit`'s X-resource-merge
+   step.
+6. **Xwayland couldn't start at all** — `error while loading shared
+   libraries: libdecor-0.so.0` — which is why `kcminit`/`ksmserver` each
+   blocked for a full 90-second systemd timeout waiting on an X11
+   handshake that could never arrive.
+7. **Fontconfig didn't exist in the image at all** — every piece of
+   desktop text rendered as a tofu box, even after everything above was
+   fixed.
+
+All seven are permanently fixed in `spk-compile.py` itself, not patched
+onto the ISO after the fact.
+
+## RC3 downloads & verification
+
+ISOs and checksums: [smechos-site downloads page](https://os.smech.xyz/downloads.html),
+release notes on [smechlabs-iso-files](https://github.com/Smech-Labs/smechlabs-iso-files/releases).
+
+---
+---
+
+# RC4 — "Founder Name Day Edition" (living document)
+
+**This half of the README describes a moving target, target date
+2026-11-30 — unlike the RC3 half above.** Where this conflicts with
+`spk-compile.py` itself, the code is correct and this is stale — check
+`SMECHOS_PLASMA_LIVE_PHASES` and the relevant `phase_*()` functions
+directly if anything here looks suspicious.
+
+## RC4 scope
+
+RC4 opens a new release family (Lesobinaska, following RC1–RC3 + the
+Anniversary Edition's Peritos family) built on SmechOS's **own**
+cross-toolchain and from-source glibc, instead of inheriting the build
+container's. Three real pieces of scope, not a version bump:
+
+1. A real cross-toolchain (crosstool-ng) targeting a new triplet,
+   `x86_64-smechos-linux-gnu`, with SmechOS's own from-source glibc.
+2. Formalized `SABI.md`/`SAPI.md` — a declared ABI/API contract (multiarch
+   path convention, `$ORIGIN`-relative RPATH policy, SONAME-transition
+   policy, the `spk` PackageKit backend contract) instead of tribal
+   knowledge scattered across code comments.
+3. Progress toward `spk`/APT feature parity (unscoped as of this writing —
+   needs its own investigation pass before it can be estimated).
+
+Deliberately **not** chasing the newest Plasma/KDE release — still pinned
+to the Plasma 6.6/Frameworks 6.24 LTS line for now; see the "Plasma 6.6 LTS
+pivot" reasoning if considering a version bump, which trades stability for
+a real integration cost each time it's reopened.
+
+## What's actually cross-compiling right now
+
+As of this writing, `CROSS_TRIPLET = "x86_64-smechos-linux-gnu"` and the
+following phases genuinely cross-compile (not just run in a
+glibc-matched container — see the cross-toolchain note earlier in this
+README):
+
+- **`cross-deps`** — the Mesa/Qt6 dependency chain (zlib..dbus), cross-built
+  so later phases stop silently falling back to the container's own copies
+  via `PKG_CONFIG_PATH`'s additive host fallback (a real, confirmed-silent
+  failure mode, not hypothetical).
+- **`qt-deps`** — all 10 Qt6 modules (qtbase, qtshadertools, qtdeclarative,
+  qtsvg, qttools, qtwayland, qtmultimedia, qt5compat, qtspeech,
+  qtpositioning) confirmed cross-compiling clean, host+cross two-pass per
+  module (`QT_HOST_PATH` for build-time tools like `moc`/`uic`/`rcc`, a
+  separate cross pass for the actual target libraries). Two real bugs
+  found and fixed to get here:
+  - `pcre2` needed `--enable-pcre2-16` — only the 8-bit codepoint variant
+    builds by default, but `QString`/`QRegularExpression` need the 16-bit
+    (UTF-16) API.
+  - CMake's `FindOpenGL` defaulted to GLVND mode and linked the
+    *container's* own split `libOpenGL.so`/`libGLX.so`, not the
+    cross-built target's single-library Mesa `libGL.so` — fixed with
+    `-DOpenGL_GL_PREFERENCE=LEGACY` on every cross-compiled module.
+- **`kernel`** — cross-compiles via the same toolchain. Also picked up
+  three real config fixes this cycle, found via an actual kexec test on
+  real hardware, not guessed: `CONFIG_BLK_DEV_NVME` was entirely absent
+  (not even a module) — meaning a from-this-kernel install would never
+  boot on the NVMe-based storage nearly every modern x86_64 machine ships
+  with. `CONFIG_DM_CRYPT` and `CONFIG_DM_THIN_PROVISIONING` were missing
+  too — the same class of bug for Calamares' encrypted-install and
+  LVM-thin-pool install paths specifically.
+
+**Not yet cross-compiling / status unclear as of this writing**: `kde`
+(KDE Frameworks + Plasma) — check the phase's own recent history before
+assuming either way.
+
+## RC4 known open issues
+
+- **Black-screen session handoff** — after the first-boot wizard (running
+  as a separate `plasma-setup` system user) hands off to the real user's
+  desktop session, the screen goes solid black and stays that way.
+  Reproduced identically on QEMU (`virtio-vga`) and real AMD Vega hardware
+  via a real kexec boot — two unrelated GPU backends hitting the same
+  symptom points at a session-handoff logic bug, not a driver issue.
+  Real evidence gathered, root cause not yet found: see
+  [`BUG_BRIEF_black_screen_handoff.md`](BUG_BRIEF_black_screen_handoff.md).
+
+## RC4 contributor entry points
+
+RC4 is deliberately meant to be the point where SmechOS opens to outside
+contributors — see the [co-maintainer call](https://github.com/Smech-Labs/spk-compile/issues/3)
+for current open areas (PLM build integration, `spk`/APT parity, real
+hardware boot-testing, and others).
+
+## RC4 checkpoint
+
+An honest status review against this scope is planned before 2026-11-30
+gets treated as fixed — if that hasn't happened yet by the time you're
+reading this, that's the thing to push on, not guessing at new scope.
+
+---
 ---
 
 ## Contributing

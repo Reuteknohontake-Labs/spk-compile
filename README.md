@@ -400,6 +400,24 @@ a real, visually-verified boot each time — not guessed at:
 All seven are permanently fixed in `spk-compile.py` itself, not patched
 onto the ISO after the fact.
 
+## RC3 known issues (live, shipped, affects real downloads today)
+
+- **Black-screen session handoff** — on first boot, the setup wizard runs
+  as a separate system user (`plasma-setup`) with its own `kwin_wayland`.
+  When you click "Finish," the real user's (`smech`) desktop session is
+  meant to take over — instead the screen goes solid black and stays that
+  way. This is **not an RC4-only risk**: it's present in RC3's actual
+  shipped binaries (confirmed directly — found by testing the Founder
+  Anniversary Edition ISO, which is RC3's real, checksum-verified binaries
+  with only a cosmetic patch layered on, no code touched). Reproduced
+  identically on QEMU and real AMD Vega hardware via a real kexec boot —
+  two unrelated GPU backends hitting the same symptom points at a
+  session-handoff logic bug, not a driver issue. Root cause not yet found;
+  real diagnostic evidence gathered so far is in
+  [`BUG_BRIEF_black_screen_handoff.md`](BUG_BRIEF_black_screen_handoff.md).
+  Since RC4's KDE/Plasma isn't cross-compiled yet, this almost certainly
+  carries forward into RC4 too once it is — see the RC4 half below.
+
 ## RC3 downloads & verification
 
 ISOs and checksums: [smechos-site downloads page](https://os.smech.xyz/downloads.html),
@@ -476,14 +494,12 @@ assuming either way.
 
 ## RC4 known open issues
 
-- **Black-screen session handoff** — after the first-boot wizard (running
-  as a separate `plasma-setup` system user) hands off to the real user's
-  desktop session, the screen goes solid black and stays that way.
-  Reproduced identically on QEMU (`virtio-vga`) and real AMD Vega hardware
-  via a real kexec boot — two unrelated GPU backends hitting the same
-  symptom points at a session-handoff logic bug, not a driver issue.
-  Real evidence gathered, root cause not yet found: see
-  [`BUG_BRIEF_black_screen_handoff.md`](BUG_BRIEF_black_screen_handoff.md).
+- **Black-screen session handoff** — see the RC3 half's "RC3 known
+  issues" section above; this is an **RC3 bug inherited into RC4**, not an
+  RC4-originated one — it lives in session-handoff logic that predates
+  RC4's cross-toolchain work and RC4's own KDE/Plasma isn't even
+  cross-compiled yet, so it can't be the cause. Fixing it benefits both
+  releases. Full evidence: [`BUG_BRIEF_black_screen_handoff.md`](BUG_BRIEF_black_screen_handoff.md).
 
 ## RC4 contributor entry points
 

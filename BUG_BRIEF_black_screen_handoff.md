@@ -1,5 +1,13 @@
 # Bug: Black screen after first-boot wizard hands off to the real desktop session
 
+**This is a live bug in the currently-shipped RC3/FAE release, not an
+RC4-only concern.** It was found by testing the Founder Anniversary
+Edition ISO — RC3's real, checksum-verified binaries with only a cosmetic
+patch on top, no session/compositor code touched. RC4's KDE/Plasma isn't
+cross-compiled yet, so it cannot be the origin; it will almost certainly
+carry forward into RC4 unless fixed here first. Treat this as affecting
+real users downloading SmechOS today, not a future-release item.
+
 ## Summary
 
 SmechOS's live/installed boot flow runs a first-boot setup wizard as a

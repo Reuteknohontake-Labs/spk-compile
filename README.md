@@ -12,6 +12,22 @@ the package manager.
 
 Bug reports live in **[smechos-issues](https://github.com/Smech-Labs/smechos-issues)**.
 
+### Release status
+
+**RC3** is the current shipped release (Plasma 6.6.6 LTS / KDE Frameworks
+6.24.0, kernel 6.12.16), with the **Founder Anniversary Edition** — a
+cosmetic patch on top of RC3 (new wallpaper, branding, no code changes) —
+released the same day this README was last updated.
+
+**RC4 ("Founder Name Day Edition")** is in active development, targeting
+real cross-compilation via a dedicated toolchain (`x86_64-smechos-linux-gnu`,
+built with crosstool-ng) instead of relying on the build container's own
+glibc matching the target's — see the cross-toolchain note below. Some
+phases (`cross-deps`, parts of `mesa`/`qt-deps`/`kernel`) already build this
+way; most of the rest of the pipeline still uses the container-glibc-match
+approach described next. If you're picking up an issue, check which phase
+you're touching — the two approaches have different debugging patterns.
+
 ---
 
 ## Contents
@@ -103,6 +119,20 @@ disappears at once: the rootfs's tools run natively, headers and libraries
 agree, and output is ABI-correct by construction. `build-one.sh` does exactly
 this and nothing clever.
 
+**This describes most of the pipeline, but not all of it anymore.** RC4 is
+introducing a real cross-toolchain (`CROSS_TRIPLET = "x86_64-smechos-linux-gnu"`,
+built with crosstool-ng) for specific phases — `cross-deps`, and parts of
+`mesa`/`qt-deps`/`kernel` — instead of the container-glibc-match trick above.
+Those phases cross-compile properly (`CROSS_COMPILE=x86_64-smechos-linux-gnu-`)
+and don't depend on the container's glibc version matching the target at
+all. Qt6 specifically now builds twice per module — once natively for the
+host (`QT_HOST_PATH`, needed for `moc`/`uic`/`rcc` and other build-time
+tools) and once cross-compiled for the target — rather than once, as the
+old container-match approach did. If you're touching one of those phases,
+the glibc-mismatch failure mode above doesn't apply; if you hit something
+that looks like it, you're more likely looking at a genuine cross-toolchain
+issue (wrong sysroot, missing `--host=` flag, etc.), not this.
+
 ### RUNPATH leaks
 
 CMake bakes the staging path into `RUNPATH` even with
@@ -174,7 +204,7 @@ are fixed by adding one string to one of these lists.**
 ## Building the full ISO in a container
 
 `build-one.sh` (above) is for verifying a single package. Building the
-**whole** ISO — all 24 phases, several hours end to end — needs a much
+**whole** ISO — all 27 phases, several hours end to end — needs a much
 larger set of exact host packages (a specific GCC version, matching Qt6/KDE
 build deps, kernel build tools…), and the only way to get that set reliably
 is inside the same `ubuntu:24.04` container `build-one.sh` already uses,
@@ -260,7 +290,16 @@ builds them from source directly — see the small inline build blocks near
 the top of `phase_kde()` for the existing pattern to copy if you hit a new
 one.
 
-### Current phase list (`smechos-plasma-live`, 24 phases)
+### Current phase list (`smechos-plasma-live`, 27 phases)
+
+Reordered and extended for RC4 — notably `cmake-bootstrap` moved much
+earlier (RC4's cross-built packages need real `cmake` sooner than Plasma
+alone did), `cross-deps` is new, `wayland`/`wayland-protocols`/`libinput`
+now run *before* `mesa` (Mesa's cross-configure actually requires an
+already-installed `wayland-client`, confirmed directly — it can only
+self-provide `wayland-protocols` as a fallback, not `wayland-client`), and
+`bundle-spkg` is new at the end. Don't trust an older copy of this table —
+check `SMECHOS_PLASMA_LIVE_PHASES` in `spk-compile.py` itself if in doubt.
 
 | # | Phase | What it does |
 |---|---|---|
@@ -270,25 +309,27 @@ one.
 | 4 | `systemd-config` | Configure baseline systemd state |
 | 5 | `locale` | Generate `en_US.UTF-8` locale |
 | 6 | `grub` | Compile GRUB 2.12 EFI + BIOS |
-| 7 | `qt-deps` | Compile Qt6 modules |
-| 8 | `mesa` | Compile Mesa stack |
-| 9 | `cmake-bootstrap` | Bootstrap CMake |
-| 10 | `wayland` | Build Wayland |
-| 11 | `wayland-protocols` | Build wayland-protocols |
-| 12 | `libinput` | Build libinput |
-| 13 | `kde` | Compile KDE Frameworks + Plasma |
-| 14 | `plasma-configure` | Configure display manager (autologin fallback SDDM) |
-| 15 | `kwin-deps` | Copy KWin runtime dependencies |
-| 16 | `xwayland-deps` | Fetch Xwayland + xkbcomp + xkb-data |
-| 17 | `qt6uitools` | Ensure Qt6UITools is present |
-| 18 | `kernel` | Compile Linux 6.12.16 |
-| 19 | `firmware` | Bundle GPU firmware (amdgpu + i915 + radeon) |
-| 20 | `patch-metadata` | Patch metadata for SmechOS branding |
-| 21 | `discover` | Compile Plasma Discover + PackageKit |
-| 22 | `calamares` | Build the Calamares graphical installer |
-| 23 | `firefox` | Install Mozilla Firefox stable |
-| 24 | `live-initramfs` | Build the busybox live initramfs |
+| 7 | `cmake-bootstrap` | Bootstrap CMake |
+| 8 | `cross-deps` | Cross-build the Mesa/Qt6 dependency chain (zlib..dbus) |
+| 9 | `wayland` | Build Wayland |
+| 10 | `wayland-protocols` | Build wayland-protocols |
+| 11 | `libinput` | Build libinput |
+| 12 | `mesa` | Compile Mesa stack |
+| 13 | `qt-deps` | Compile Qt6 modules (host + cross pass per module) |
+| 14 | `kde` | Compile KDE Frameworks + Plasma |
+| 15 | `plasma-configure` | Configure display manager (PLM, fallback SDDM) |
+| 16 | `kwin-deps` | Copy KWin runtime dependencies |
+| 17 | `xwayland-deps` | Fetch Xwayland + xkbcomp + xkb-data |
+| 18 | `qt6uitools` | Ensure Qt6UITools is present |
+| 19 | `kernel` | Compile Linux 6.12.16 |
+| 20 | `firmware` | Bundle GPU firmware (amdgpu + i915 + radeon) |
+| 21 | `patch-metadata` | Patch metadata for SmechOS branding |
+| 22 | `discover` | Compile Plasma Discover + PackageKit |
+| 23 | `calamares` | Build the Calamares graphical installer |
+| 24 | `firefox` | Install Mozilla Firefox stable |
+| 25 | `live-initramfs` | Build the busybox live initramfs |
 | — | `bundle` | Bundle output into spk-installable `.tar.xz` packages |
+| — | `bundle-spkg` | Emit per-component `.spkg` packages from recorded manifests |
 
 Run one phase in isolation the same way as on bare metal, just via
 `docker run` instead of `sudo python3`:

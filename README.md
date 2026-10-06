@@ -14,13 +14,15 @@ Bug reports live in **[smechos-issues](https://github.com/Smech-Labs/smechos-iss
 
 ### Release status
 
-**RC3** is the current shipped release (Plasma 6.6.6 LTS / KDE Frameworks
-6.24.0, kernel 6.12.16), with the **Founder Anniversary Edition** — a
-cosmetic patch on top of RC3 (new wallpaper, branding, no code changes) —
-released the same day this README was last updated.
+**[RC3](RC3.md)** is the current shipped release (stable reference doc —
+architecture, the real boot-chain bug chain that RC3 fixed, download
+links). The **Founder Anniversary Edition**, a cosmetic patch on top of RC3
+(new wallpaper, branding, no code changes), shipped the same day this
+README was last updated.
 
-**RC4 ("Founder Name Day Edition")** is in active development, targeting
-real cross-compilation via a dedicated toolchain (`x86_64-smechos-linux-gnu`,
+**[RC4](RC4.md)** ("Founder Name Day Edition") is in active development —
+a living doc, unlike RC3's, since it's a moving target: real
+cross-compilation via a dedicated toolchain (`x86_64-smechos-linux-gnu`,
 built with crosstool-ng) instead of relying on the build container's own
 glibc matching the target's — see the cross-toolchain note below. Some
 phases (`cross-deps`, parts of `mesa`/`qt-deps`/`kernel`) already build this
